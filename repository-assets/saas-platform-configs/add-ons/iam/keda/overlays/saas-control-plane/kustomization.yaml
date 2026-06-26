@@ -1,0 +1,36 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+nameSuffix: -saas-control-plane
+
+patches:
+  - target:
+      kind: Policy
+      name: keda-policy
+    patch: |-
+      - op: replace
+        path: /spec/name
+        value: KedaOperatorPolicy-saas-control-plane
+  - target:
+      kind: Role
+      name: keda-role
+    patch: |-
+      - op: replace
+        path: /spec/name
+        value: KedaOperatorRole-saas-control-plane
+      - op: replace
+        path: /spec/policyRefs/0/from/name
+        value: keda-policy-saas-control-plane
+  - target:
+      kind: PodIdentityAssociation
+      name: keda-pod-identity
+    patch: |-
+      - op: replace
+        path: /spec/clusterName
+        value: saas-control-plane
+      - op: replace
+        path: /spec/roleRef/from/name
+        value: keda-role-saas-control-plane

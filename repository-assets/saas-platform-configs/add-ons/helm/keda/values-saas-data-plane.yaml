@@ -1,0 +1,29 @@
+operator:
+  name: keda-operator
+  replicaCount: 1
+
+metricsServer:
+  name: keda-metrics-apiserver
+  replicaCount: 1
+
+webhooks:
+  name: keda-admission-webhooks
+  replicaCount: 1
+
+serviceAccount:
+  operator:
+    name: keda-operator
+  metricsServer:
+    name: keda-metrics-server
+  webhooks:
+    name: keda-webhooks
+
+# Data plane specific configuration
+resources:
+  operator:
+    limits:
+      cpu: 500m
+      memory: 500Mi
+    requests:
+      cpu: 50m
+      memory: 50Mi

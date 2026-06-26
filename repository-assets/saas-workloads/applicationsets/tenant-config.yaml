@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenants
+  namespace: argocd
+spec:
+  generators:
+    - clusters: {}
+  template:
+    metadata:
+      name: '{{name}}-tenants'
+      namespace: argocd
+    spec:
+      project: default
+      source:
+        repoURL: 'https://git-codecommit.{{metadata.labels.aws-region}}.amazonaws.com/v1/repos/saas-workloads'
+        targetRevision: main
+        path: .
+        directory:
+          recurse: true
+          exclude: '{applicationsets/*,examples/*}'
+      destination:
+        server: '{{server}}'
+        namespace: tenants
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

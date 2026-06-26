@@ -1,0 +1,15 @@
+apiVersion: eks.services.k8s.aws/v1alpha1
+kind: PodIdentityAssociation
+metadata:
+  name: keda-pod-identity
+  namespace: keda-system
+  labels:
+    app.kubernetes.io/name: keda
+    app.kubernetes.io/component: add-on
+spec:
+  clusterName: template-cluster
+  namespace: keda-system
+  serviceAccount: keda-operator
+  roleRef:
+    from:
+      name: keda-role

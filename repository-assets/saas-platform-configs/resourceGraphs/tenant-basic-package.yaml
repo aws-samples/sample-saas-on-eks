@@ -1,0 +1,121 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata:
+  name: tenant-basic-package
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: TenantBasicPackage
+    group: kro.run
+    spec:
+      # Tenant name - used for resource naming and namespace
+      name: string
+      # Container image to deploy for the tenant
+      image: string
+      # Number of replicas for the tenant deployment
+      replicas: integer
+      # S3 bucket name for the tenant (must be globally unique)
+      bucketName: string
+      # Container port the tenant application listens on
+      containerPort: integer | default=8080
+      # Service port to expose for the tenant
+      servicePort: integer | default=80
+
+  
+  resources:
+    # S3 Bucket provisioned via ACK
+    - id: s3bucket
+      template:
+        apiVersion: s3.services.k8s.aws/v1alpha1
+        kind: Bucket
+        metadata:
+          name: ${schema.spec.bucketName}
+          namespace: ${schema.metadata.namespace}
+        spec:
+          name: ${schema.spec.bucketName}
+    
+    # Deployment for the application
+    - id: deployment
+      template:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: ${schema.spec.name}
+          namespace: ${schema.metadata.namespace}
+          labels:
+            app: ${schema.spec.name}
+            managed-by: kro
+        spec:
+          replicas: ${schema.spec.replicas}
+          selector:
+            matchLabels:
+              app: ${schema.spec.name}
+          template:
+            metadata:
+              labels:
+                app: ${schema.spec.name}
+            spec:
+              containers:
+                - name: app
+                  image: ${schema.spec.image}
+                  ports:
+                    - containerPort: ${schema.spec.containerPort}
+                      name: http
+                  env:
+                    - name: S3_BUCKET
+                      value: ${schema.spec.bucketName}
+                  resources:
+                    requests:
+                      cpu: 100m
+                      memory: 128Mi
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+    
+    # Service to expose the application
+    - id: service
+      template:
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: ${schema.spec.name}
+          namespace: ${schema.metadata.namespace}
+          labels:
+            app: ${schema.spec.name}
+            managed-by: kro
+        spec:
+          type: LoadBalancer
+          selector:
+            app: ${schema.spec.name}
+          ports:
+            - port: ${schema.spec.servicePort}
+              targetPort: ${schema.spec.containerPort}
+              protocol: TCP
+              name: http
+    
+    # Ingress for external access
+    - id: ingress
+      template:
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        metadata:
+          name: ${schema.spec.name}
+          namespace: ${schema.metadata.namespace}
+          labels:
+            app: ${schema.spec.name}
+            managed-by: kro
+          annotations:
+            kubernetes.io/ingress.class: alb
+            alb.ingress.kubernetes.io/scheme: internet-facing
+            alb.ingress.kubernetes.io/target-type: ip
+        spec:
+          rules:
+            - http:
+                paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                      service:
+                        name: ${schema.spec.name}
+                        port:
+                          number: ${schema.spec.servicePort}
