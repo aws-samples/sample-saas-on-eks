@@ -1,0 +1,34 @@
+apiVersion: iam.services.k8s.aws/v1alpha1
+kind: Policy
+metadata:
+  name: keda-policy
+  namespace: keda-system
+  labels:
+    app.kubernetes.io/name: keda
+    app.kubernetes.io/component: add-on
+spec:
+  name: KedaOperatorPolicy
+  policyDocument: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": [
+            "cloudwatch:GetMetricData",
+            "cloudwatch:GetMetricStatistics",
+            "cloudwatch:ListMetrics",
+            "sqs:GetQueueAttributes",
+            "sqs:ListQueues",
+            "sqs:ReceiveMessage",
+            "kinesis:DescribeStream",
+            "kinesis:ListStreams",
+            "kinesis:GetRecords",
+            "kinesis:GetShardIterator",
+            "kinesis:DescribeStreamSummary",
+            "kinesis:ListShards"
+          ],
+          "Resource": "*"
+        }
+      ]
+    }

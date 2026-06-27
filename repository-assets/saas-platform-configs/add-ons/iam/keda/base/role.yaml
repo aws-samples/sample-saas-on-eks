@@ -1,0 +1,29 @@
+apiVersion: iam.services.k8s.aws/v1alpha1
+kind: Role
+metadata:
+  name: keda-role
+  namespace: keda-system
+  labels:
+    app.kubernetes.io/name: keda
+    app.kubernetes.io/component: add-on
+spec:
+  name: KedaOperatorRole
+  assumeRolePolicyDocument: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Principal": {
+            "Service": "pods.eks.amazonaws.com"
+          },
+          "Action": [
+            "sts:AssumeRole",
+            "sts:TagSession"
+          ]
+        }
+      ]
+    }
+  policyRefs:
+    - from:
+        name: keda-policy

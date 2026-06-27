@@ -1,0 +1,82 @@
+# Add-on IAM Resources ApplicationSet
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: addon-iam-resources
+  namespace: argocd
+spec:
+  generators:
+    - matrix:
+        generators:
+          - clusters: {}
+          - list:
+              elements:
+                - addon: keda
+                  namespace: keda-system
+  template:
+    metadata:
+      name: '{{addon}}-iam-{{name}}'
+      namespace: argocd
+    spec:
+      project: default
+      source:
+        repoURL: 'https://git-codecommit.{{metadata.labels.aws-region}}.amazonaws.com/v1/repos/saas-platform-configs'
+        targetRevision: main
+        path: 'add-ons/iam/{{addon}}/overlays/{{name}}'
+        kustomize: {}
+      destination:
+        server: '{{server}}'
+        namespace: '{{namespace}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+---
+# Add-on Helm Charts ApplicationSet
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: addon-helm-charts
+  namespace: argocd
+spec:
+  generators:
+    - matrix:
+        generators:
+          - clusters: {}
+          - list:
+              elements:
+                - addon: keda
+                  chart: keda
+                  repo: https://kedacore.github.io/charts
+                  version: "2.15.1"
+                  namespace: keda-system
+  template:
+    metadata:
+      name: '{{addon}}-helm-{{name}}'
+      namespace: argocd
+    spec:
+      project: default
+      sources:
+        - repoURL: '{{repo}}'
+          chart: '{{chart}}'
+          targetRevision: '{{version}}'
+          helm:
+            releaseName: '{{addon}}'
+            valueFiles:
+              - '$values/add-ons/helm/{{addon}}/values-{{name}}.yaml'
+        - repoURL: 'https://git-codecommit.{{metadata.labels.aws-region}}.amazonaws.com/v1/repos/saas-platform-configs'
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{server}}'
+        namespace: '{{namespace}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
