@@ -1,0 +1,15 @@
+# EKS Pod Identity Association (ACK) — binds the ServiceAccount to the IAM Role
+apiVersion: eks.services.k8s.aws/v1alpha1
+kind: PodIdentityAssociation
+metadata:
+  name: gaming-app-pod-identity
+  namespace: gaming
+  labels:
+    app: gaming-app
+spec:
+  clusterName: saas-data-plane
+  namespace: gaming
+  serviceAccount: gaming-app-sa
+  roleRef:
+    from:
+      name: gaming-app-role

@@ -1,0 +1,89 @@
+---
+# ══════════════════════════════════════════════
+# Tenant isolation: block cross-tenant ingress
+# Denies ingress from other tenant namespaces at Admin tier.
+# Non-tenant traffic (system namespaces, ALB) is unaffected.
+# ══════════════════════════════════════════════
+apiVersion: networking.k8s.aws/v1alpha1
+kind: ClusterNetworkPolicy
+metadata:
+  name: deny-cross-tenant-ingress
+  labels:
+    managed-by: kro
+spec:
+  tier: Admin
+  priority: 10
+  subject:
+    namespaces:
+      matchLabels:
+        saas-platform/tenant-namespace: "true"
+  ingress:
+    - name: deny-from-other-tenants
+      action: Deny
+      from:
+        - namespaces:
+            matchLabels:
+              saas-platform/tenant-namespace: "true"
+---
+# ══════════════════════════════════════════════
+# Platform egress prerequisites — applies to every tenant namespace
+# (both basic and pro) via the saas-platform/tenant-namespace label.
+#
+# Without these rules, each tenant's namespace-scoped
+# ApplicationNetworkPolicy flips the namespace into default-deny for
+# egress and both cluster DNS resolution and Pod Identity credential
+# fetches fail, surfacing as EAI_AGAIN / credential errors in the SDK.
+#
+# Centralized here so every tenant tier inherits the same baseline
+# instead of duplicating the rules inside each tier RGD.
+# ══════════════════════════════════════════════
+apiVersion: networking.k8s.aws/v1alpha1
+kind: ClusterNetworkPolicy
+metadata:
+  name: allow-tenant-platform-egress
+  labels:
+    managed-by: kro
+spec:
+  tier: Admin
+  priority: 20
+  subject:
+    namespaces:
+      matchLabels:
+        saas-platform/tenant-namespace: "true"
+  egress:
+    # DNS — required for the AWS SDK to resolve service endpoints.
+    # EKS Auto Mode runs cluster DNS as a managed component, not as
+    # a user-visible pod in kube-system, so we allow by port 53
+    # rather than by namespace/pod selector. Scoped to the cluster
+    # service CIDR (172.20.0.0/16) so pods cannot reach external
+    # DNS resolvers — only the in-cluster DNS ClusterIP is reachable.
+    - name: allow-dns-udp
+      action: Accept
+      to:
+        - networks:
+            - 172.20.0.0/16
+      ports:
+        - portNumber:
+            port: 53
+            protocol: UDP
+    - name: allow-dns-tcp
+      action: Accept
+      to:
+        - networks:
+            - 172.20.0.0/16
+      ports:
+        - portNumber:
+            port: 53
+            protocol: TCP
+    # EKS Pod Identity Agent — link-local endpoint used by the AWS
+    # SDK (via AWS_CONTAINER_CREDENTIALS_FULL_URI) to fetch temporary
+    # credentials for the pod's associated IAM role.
+    - name: allow-pod-identity-agent
+      action: Accept
+      to:
+        - networks:
+            - 169.254.170.23/32
+      ports:
+        - portNumber:
+            port: 80
+            protocol: TCP

@@ -1,0 +1,24 @@
+# Tenant: tenant-004 (Pro Tier)
+---
+apiVersion: kro.run/v1alpha1
+kind: Tenant
+metadata:
+  name: tenant-004
+  labels:
+    tenant-id: tenant-004
+    tenant-tier: pro
+    managed-by: kro
+spec:
+  # Tenant identification
+  tenantId: tenant-004
+  tenantName: "Tenant Pro 004"
+
+  # Tier configuration
+  tier: pro
+  version: "latest"
+
+  # S3 bucket for tenant assets (avatars, game data)
+  bucketName: tenant-004-assets
+
+  # DynamoDB table (dedicated for pro tier)
+  tableName: gaming-app-tenant-004

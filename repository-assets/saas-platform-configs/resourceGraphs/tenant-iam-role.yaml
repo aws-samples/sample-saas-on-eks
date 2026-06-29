@@ -1,0 +1,386 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata:
+  name: tenant-iam-role
+  namespace: default
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: TenantIAMRole
+    group: kro.run
+    spec:
+      # Tenant identifier
+      tenantId: string | required=true
+      # Tenant tier
+      tier: string | required=true
+      # AWS account ID
+      awsAccountId: string | required=true
+      # AWS region
+      awsRegion: string | default="us-east-1"
+      # S3 bucket name
+      bucketName: string | required=true
+      # S3 prefix (for basic tier shared bucket isolation)
+      s3Prefix: string | default=""
+      # DynamoDB table name
+      tableName: string | required=true
+
+  resources:
+    # ──────────────────────────────────────────────
+    # Basic Tier: S3 Policy (shared bucket, prefix-scoped)
+    # ──────────────────────────────────────────────
+    - id: s3PolicyBasic
+      includeWhen:
+        - ${schema.spec.tier == "basic"}
+      template:
+        apiVersion: iam.services.k8s.aws/v1alpha1
+        kind: Policy
+        metadata:
+          name: ${schema.spec.tenantId}-s3-policy
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          name: ${schema.spec.tenantId}-s3-policy
+          description: "S3 access policy for tenant ${schema.spec.tenantId} (Basic tier - shared bucket)"
+          policyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "S3ObjectAccess",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:DeleteObject"
+                  ],
+                  "Resource": "arn:aws:s3:::${schema.spec.bucketName}/${schema.spec.s3Prefix}*"
+                },
+                {
+                  "Sid": "S3ListBucket",
+                  "Effect": "Allow",
+                  "Action": "s3:ListBucket",
+                  "Resource": "arn:aws:s3:::${schema.spec.bucketName}",
+                  "Condition": {
+                    "StringLike": {
+                      "s3:prefix": ["${schema.spec.s3Prefix}*"]
+                    }
+                  }
+                }
+              ]
+            }
+          tags:
+            - key: TenantId
+              value: ${schema.spec.tenantId}
+            - key: ManagedBy
+              value: kro
+
+    # ──────────────────────────────────────────────
+    # Basic Tier: DynamoDB Policy (shared table, LeadingKeys condition)
+    # ──────────────────────────────────────────────
+    - id: dynamodbPolicyBasic
+      includeWhen:
+        - ${schema.spec.tier == "basic"}
+      template:
+        apiVersion: iam.services.k8s.aws/v1alpha1
+        kind: Policy
+        metadata:
+          name: ${schema.spec.tenantId}-dynamodb-policy
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          name: ${schema.spec.tenantId}-dynamodb-policy
+          description: "DynamoDB access policy for tenant ${schema.spec.tenantId} (Basic tier - shared table)"
+          policyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "DynamoDBTableAccess",
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:GetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:Query",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem"
+                  ],
+                  "Resource": [
+                    "arn:aws:dynamodb:${schema.spec.awsRegion}:${schema.spec.awsAccountId}:table/${schema.spec.tableName}",
+                    "arn:aws:dynamodb:${schema.spec.awsRegion}:${schema.spec.awsAccountId}:table/${schema.spec.tableName}/index/*"
+                  ],
+                  "Condition": {
+                    "ForAllValues:StringLike": {
+                      "dynamodb:LeadingKeys": [
+                        "TENANT#${schema.spec.tenantId}#*"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          tags:
+            - key: TenantId
+              value: ${schema.spec.tenantId}
+            - key: ManagedBy
+              value: kro
+
+    # ──────────────────────────────────────────────
+    # IAM Role
+    # policyRefs are dependency to have correct delete ordering
+    # between the role and its attached policies
+    # ──────────────────────────────────────────────
+    - id: iamRoleBasic
+      includeWhen:
+        - ${schema.spec.tier == "basic"}
+      template:
+        apiVersion: iam.services.k8s.aws/v1alpha1
+        kind: Role
+        metadata:
+          name: ${schema.spec.tenantId}-app-role
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          name: ${schema.spec.tenantId}-app-role
+          description: "IAM role for tenant ${schema.spec.tenantId} application with EKS Pod Identity"
+          assumeRolePolicyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": "pods.eks.amazonaws.com"
+                  },
+                  "Action": [
+                    "sts:AssumeRole",
+                    "sts:TagSession"
+                  ]
+                }
+              ]
+            }
+          policyRefs:
+            - from:
+                name: ${s3PolicyBasic.spec.name}
+            - from:
+                name: ${dynamodbPolicyBasic.spec.name}
+          tags:
+            - key: TenantId
+              value: ${schema.spec.tenantId}
+            - key: TenantTier
+              value: ${schema.spec.tier}
+            - key: ManagedBy
+              value: kro
+
+    # ──────────────────────────────────────────────
+    # EKS Pod Identity Association
+    # ──────────────────────────────────────────────
+    - id: podIdentityBasic
+      includeWhen:
+        - ${schema.spec.tier == "basic"}
+      readyWhen:
+        - ${podIdentityBasic.status.conditions.exists(x, x.type == 'ACK.ResourceSynced' && x.status == "True")}
+      template:
+        apiVersion: eks.services.k8s.aws/v1alpha1
+        kind: PodIdentityAssociation
+        metadata:
+          name: ${schema.spec.tenantId}-pod-identity
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          clusterName: saas-data-plane
+          namespace: ${schema.metadata.namespace}
+          serviceAccount: ${schema.spec.tenantId}-sa
+          roleARN: ${iamRoleBasic.status.ackResourceMetadata.arn}
+
+    # ──────────────────────────────────────────────
+    # IAM Role
+    # policyRefs are dependency to have correct delete ordering
+    # between the role and its attached policies
+    # ──────────────────────────────────────────────
+    - id: iamRolePro
+      includeWhen:
+        - ${schema.spec.tier == "pro"}
+      template:
+        apiVersion: iam.services.k8s.aws/v1alpha1
+        kind: Role
+        metadata:
+          name: ${schema.spec.tenantId}-app-role
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          name: ${schema.spec.tenantId}-app-role
+          description: "IAM role for tenant ${schema.spec.tenantId} application with EKS Pod Identity"
+          assumeRolePolicyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": "pods.eks.amazonaws.com"
+                  },
+                  "Action": [
+                    "sts:AssumeRole",
+                    "sts:TagSession"
+                  ]
+                }
+              ]
+            }
+          policyRefs:
+            - from:
+                name: ${s3PolicyPro.spec.name}
+            - from:
+                name: ${dynamodbPolicyPro.spec.name}
+          tags:
+            - key: TenantId
+              value: ${schema.spec.tenantId}
+            - key: TenantTier
+              value: ${schema.spec.tier}
+            - key: ManagedBy
+              value: kro
+
+    # ──────────────────────────────────────────────
+    # Pro Tier: S3 Policy (dedicated bucket, full access)
+    # ──────────────────────────────────────────────
+    - id: s3PolicyPro
+      includeWhen:
+        - ${schema.spec.tier == "pro"}
+      template:
+        apiVersion: iam.services.k8s.aws/v1alpha1
+        kind: Policy
+        metadata:
+          name: ${schema.spec.tenantId}-s3-policy
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          name: ${schema.spec.tenantId}-s3-policy
+          description: "S3 access policy for tenant ${schema.spec.tenantId} (Pro tier - dedicated bucket)"
+          policyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:DeleteObject",
+                    "s3:ListBucket"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::${schema.spec.bucketName}",
+                    "arn:aws:s3:::${schema.spec.bucketName}/*"
+                  ]
+                }
+              ]
+            }
+          tags:
+            - key: TenantId
+              value: ${schema.spec.tenantId}
+            - key: ManagedBy
+              value: kro
+
+    # ──────────────────────────────────────────────
+    # Pro Tier: DynamoDB Policy (dedicated table, full access)
+    # ──────────────────────────────────────────────
+    - id: dynamodbPolicyPro
+      includeWhen:
+        - ${schema.spec.tier == "pro"}
+      template:
+        apiVersion: iam.services.k8s.aws/v1alpha1
+        kind: Policy
+        metadata:
+          name: ${schema.spec.tenantId}-dynamodb-policy
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          name: ${schema.spec.tenantId}-dynamodb-policy
+          description: "DynamoDB access policy for tenant ${schema.spec.tenantId} (Pro tier - dedicated table)"
+          policyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:GetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem",
+                    "dynamodb:Query",
+                    "dynamodb:DescribeTable"
+                  ],
+                  "Resource": [
+                    "arn:aws:dynamodb:${schema.spec.awsRegion}:${schema.spec.awsAccountId}:table/gaming-app-tenant-${schema.spec.tenantId}",
+                    "arn:aws:dynamodb:${schema.spec.awsRegion}:${schema.spec.awsAccountId}:table/gaming-app-tenant-${schema.spec.tenantId}/index/*"
+                  ]
+                }
+              ]
+            }
+          tags:
+            - key: TenantId
+              value: ${schema.spec.tenantId}
+            - key: ManagedBy
+              value: kro
+
+    # ──────────────────────────────────────────────
+    # EKS Pod Identity Association
+    # ──────────────────────────────────────────────
+    - id: podIdentityPro
+      includeWhen:
+        - ${schema.spec.tier == "pro"}
+      readyWhen:
+        - ${podIdentityPro.status.conditions.exists(x, x.type == 'ACK.ResourceSynced' && x.status == "True")}
+      template:
+        apiVersion: eks.services.k8s.aws/v1alpha1
+        kind: PodIdentityAssociation
+        metadata:
+          name: ${schema.spec.tenantId}-pod-identity
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          clusterName: saas-data-plane
+          namespace: ${schema.metadata.namespace}
+          serviceAccount: ${schema.spec.tenantId}-sa
+          roleARN: ${iamRolePro.status.ackResourceMetadata.arn}
+
+    # ──────────────────────────────────────────────
+    # ServiceAccount for the application (Pod Identity)
+    # ──────────────────────────────────────────────
+    - id: serviceaccount
+      template:
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: ${schema.spec.tenantId}-sa
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        # Note: Pod Identity does not require annotations
+        # The PodIdentityAssociation resource handles the mapping

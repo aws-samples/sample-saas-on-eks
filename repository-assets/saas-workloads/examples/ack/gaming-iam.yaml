@@ -1,0 +1,89 @@
+# IAM Policy (ACK) - Scoped access to the gaming app's AWS resources
+apiVersion: iam.services.k8s.aws/v1alpha1
+kind: Policy
+metadata:
+  name: gaming-app-policy
+  namespace: gaming
+  labels:
+    app: gaming-app
+spec:
+  name: gaming-app-policy
+  description: "Access policy for the gaming application's DynamoDB table and S3 bucket"
+  policyDocument: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "DynamoDBTableAccess",
+          "Effect": "Allow",
+          "Action": [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:DeleteItem",
+            "dynamodb:Query",
+            "dynamodb:Scan",
+            "dynamodb:DescribeTable"
+          ],
+          "Resource": [
+            "arn:aws:dynamodb:${AWS_REGION}:${AWS_ACCOUNT_ID}:table/${DYNAMODB_TABLE_NAME}",
+            "arn:aws:dynamodb:${AWS_REGION}:${AWS_ACCOUNT_ID}:table/${DYNAMODB_TABLE_NAME}/index/*"
+          ]
+        },
+        {
+          "Sid": "S3ObjectAccess",
+          "Effect": "Allow",
+          "Action": [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:DeleteObject"
+          ],
+          "Resource": "arn:aws:s3:::${S3_BUCKET_NAME}/avatars/*"
+        },
+        {
+          "Sid": "S3BucketListAccess",
+          "Effect": "Allow",
+          "Action": "s3:ListBucket",
+          "Resource": "arn:aws:s3:::${S3_BUCKET_NAME}",
+          "Condition": {
+            "StringLike": {
+              "s3:prefix": ["avatars/*"]
+            }
+          }
+        }
+      ]
+    }
+---
+# IAM Role (ACK) - Application identity for AWS access via EKS Pod Identity
+apiVersion: iam.services.k8s.aws/v1alpha1
+kind: Role
+metadata:
+  name: gaming-app-role
+  namespace: gaming
+  labels:
+    app: gaming-app
+spec:
+  name: gaming-app-role
+  description: "IAM role for the gaming application using EKS Pod Identity"
+  assumeRolePolicyDocument: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Principal": {
+            "Service": "pods.eks.amazonaws.com"
+          },
+          "Action": [
+            "sts:AssumeRole",
+            "sts:TagSession"
+          ]
+        }
+      ]
+    }
+  policyRefs:
+    - from:
+        name: gaming-app-policy
+  tags:
+    - key: App
+      value: gaming-app

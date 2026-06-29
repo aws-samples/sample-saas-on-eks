@@ -5,7 +5,10 @@ metadata:
   namespace: argocd
 spec:
   generators:
-    - clusters: {}
+    - clusters:
+        selector:
+          matchLabels:
+            cluster.saas.aws/type: data-plane
   template:
     metadata:
       name: '{{name}}-platform'

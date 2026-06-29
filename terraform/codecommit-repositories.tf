@@ -27,27 +27,17 @@ resource "aws_codecommit_repository" "workloads" {
 }
 
 ################################################################################
-# Repository Outputs
+# CodeCommit Repository for Gaming Application Source Code
 ################################################################################
 
-output "platform_configs_repository" {
-  description = "Platform configs CodeCommit repository details"
-  value = {
-    name           = aws_codecommit_repository.platform_configs.repository_name
-    arn            = aws_codecommit_repository.platform_configs.arn
-    clone_url_http = aws_codecommit_repository.platform_configs.clone_url_http
-    clone_url_ssh  = aws_codecommit_repository.platform_configs.clone_url_ssh
-    repository_id  = aws_codecommit_repository.platform_configs.repository_id
-  }
-}
+# CodeCommit Repository for Gaming Application Source Code
+resource "aws_codecommit_repository" "gaming_app" {
+  repository_name = "saas-gaming-app"
+  description     = "Source code repository for the SaaS Gaming Application"
 
-output "workloads_repository" {
-  description = "Workloads CodeCommit repository details"
-  value = {
-    name           = aws_codecommit_repository.workloads.repository_name
-    arn            = aws_codecommit_repository.workloads.arn
-    clone_url_http = aws_codecommit_repository.workloads.clone_url_http
-    clone_url_ssh  = aws_codecommit_repository.workloads.clone_url_ssh
-    repository_id  = aws_codecommit_repository.workloads.repository_id
-  }
+  tags = merge(local.tags, {
+    Repository = "gaming-app"
+    AlignedWith = "data-plane"
+    Purpose    = "Application source code"
+  })
 }

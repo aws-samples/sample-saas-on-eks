@@ -1,0 +1,22 @@
+# Gaming application stack
+# This demonstrates the full-app-stack ResourceGraphDefinition
+#
+# Architecture Flow:
+# 1. FullAppStack instance (this file) →
+# 2. ResourceGraphDefinition (full-app-stack.yaml) →
+# 3. Kubernetes + AWS resources (Namespace, Deployment, Service, Ingress, IAM, S3, DynamoDB, etc.)
+
+---
+apiVersion: kro.run/v1alpha1
+kind: FullAppStack
+metadata:
+  name: gaming-app
+  namespace: default
+  labels:
+    app: gaming-app
+    managed-by: kro
+spec:
+  version: "latest"
+  bucketName: gaming-app-assets
+  tableName: gaming-app-table
+  albScheme: internet-facing

@@ -1,0 +1,22 @@
+# Tenant: tenant-002 (Basic Tier)
+
+---
+apiVersion: kro.run/v1alpha1
+kind: Tenant
+metadata:
+  name: tenant-002
+  labels:
+    tenant-id: tenant-002
+    tenant-tier: basic
+    managed-by: kro
+spec:
+  # Tenant identification
+  tenantId: tenant-002
+  tenantName: "Tenant Basic 002"
+
+  # Tier configuration
+  tier: basic
+  version: "latest"
+
+  # Shared Pool
+  tenantPool: "pool-resources-001"

@@ -17,6 +17,9 @@ data "aws_availability_zones" "available" {
 
 # Local values for consistent naming and configuration
 locals {
+  # Region - use var.region if explicitly set, otherwise detect from provider
+  region = var.region != null ? var.region : data.aws_region.current.region
+
   # Cluster names
   control_plane_cluster_name = "saas-control-plane"
   data_plane_cluster_name    = "saas-data-plane"
@@ -30,6 +33,7 @@ locals {
     Environment = "workshop"
     Project     = "saas-on-eks"
     ManagedBy   = "terraform"
+    auto-delete = "no"
   }
 }
 

@@ -1,0 +1,111 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata:
+  name: tenant-main
+  namespace: default
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: Tenant
+    group: kro.run
+    spec:
+      # Tenant identifier
+      tenantId: string | required=true
+      # Tenant display name
+      tenantName: string | required=true
+      # Tenant tier: "basic" or "pro"
+      tier: string | required=true enum="basic,pro"
+      # Tenant Pool - Namespace for AWS resources, applicable only to basic tier tenants
+      tenantPool: string | default="pool-resources-001"
+      # Application version to deploy
+      version: string | required=true
+      # S3 bucket name (required for pro tier, must be globally unique)
+      bucketName: string
+      # DynamoDB table name (required for pro tier)
+      tableName: string
+      # ALB scheme - internet-facing or internal
+      albScheme: string | default="internet-facing" enum="internet-facing,internal"
+
+  resources:
+    # kro Info
+    # This is a reference to an existing ConfigMap in the cluster
+    - id: kroConfig
+      externalRef:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: kro-config
+          namespace: default
+    # ──────────────────────────────────────────────
+    # Namespace with Pod Security Standards
+    # Enforces baseline PSS to prevent privileged containers,
+    # host namespace sharing, and other dangerous pod configurations.
+    # The saas-platform/tenant-namespace label is used by the
+    # ClusterNetworkPolicy resources in cluster-policies RGD to
+    # target all tenant namespaces for network isolation.
+    # ──────────────────────────────────────────────
+    - id: tenantNamespace
+      template:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: ${schema.spec.tenantId}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+            saas-platform/tenant-namespace: "true"
+            # Pod Security Standards - enforce baseline, warn on restricted
+            pod-security.kubernetes.io/enforce: baseline
+            pod-security.kubernetes.io/enforce-version: latest
+            pod-security.kubernetes.io/warn: restricted
+            pod-security.kubernetes.io/warn-version: latest
+            pod-security.kubernetes.io/audit: restricted
+            pod-security.kubernetes.io/audit-version: latest
+
+    # Conditional: Deploy Basic Tier Package
+    - id: basicPackage
+      readyWhen:
+        - ${basicPackage.status.conditions.exists(c, c.type == "Ready" && c.status == "True")}
+      includeWhen:
+        - ${schema.spec.tier == "basic"}
+      template:
+        apiVersion: kro.run/v1alpha1
+        kind: TenantBasicPackage
+        metadata:
+          name: ${schema.spec.tenantId}
+          namespace: ${schema.spec.tenantId}
+        spec:
+          tenantId: ${schema.spec.tenantId}
+          tenantName: ${schema.spec.tenantName}
+          tier: ${schema.spec.tier}
+          tenantPool: ${schema.spec.tenantPool}
+          version: ${schema.spec.version}
+          image: ${kroConfig.data.ecr_repo}
+          awsRegion: ${kroConfig.data.region}
+          awsAccountId: ${kroConfig.data.account_id}
+          albScheme: ${schema.spec.albScheme}
+
+    # Conditional: Deploy Pro Tier Package
+    - id: proPackage
+      readyWhen:
+        - ${proPackage.status.conditions.exists(c, c.type == "Ready" && c.status == "True")}
+      includeWhen:
+        - ${schema.spec.tier == "pro"}
+      template:
+        apiVersion: kro.run/v1alpha1
+        kind: TenantProPackage
+        metadata:
+          name: ${schema.spec.tenantId}
+          namespace: ${schema.spec.tenantId}
+        spec:
+          tenantId: ${schema.spec.tenantId}
+          tenantName: ${schema.spec.tenantName}
+          tier: ${schema.spec.tier}
+          version: ${schema.spec.version}
+          image: ${kroConfig.data.ecr_repo}
+          bucketName: ${schema.spec.bucketName}
+          tableName: ${schema.spec.tableName}
+          awsRegion: ${kroConfig.data.region}
+          awsAccountId: ${kroConfig.data.account_id}
+          albScheme: ${schema.spec.albScheme}
