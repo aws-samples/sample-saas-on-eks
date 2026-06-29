@@ -62,42 +62,37 @@ resource "aws_iam_policy" "workloads_access" {
   })
 }
 
-################################################################################
-# IAM Role for CI/CD Pipeline (optional)
-################################################################################
+# IAM policy for gaming-app repository access
+resource "aws_iam_policy" "gaming_app_access" {
+  name        = "saas-gaming-app-access"
+  description = "Policy for accessing gaming-app CodeCommit repository"
 
-# IAM role for CI/CD pipeline that needs access to both repositories
-resource "aws_iam_role" "codecommit_pipeline_role" {
-  name = "saas-codecommit-pipeline-role"
-
-  assume_role_policy = jsonencode({
+  policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Action = "sts:AssumeRole"
         Effect = "Allow"
-        Principal = {
-          Service = [
-            "codepipeline.amazonaws.com",
-            "codebuild.amazonaws.com"
-          ]
-        }
+        Action = [
+          "codecommit:GitPull",
+          "codecommit:GitPush",
+          "codecommit:GetBranch",
+          "codecommit:GetCommit",
+          "codecommit:GetRepository",
+          "codecommit:ListBranches",
+          "codecommit:ListRepositories",
+          "codecommit:CreateBranch",
+          "codecommit:DeleteBranch",
+          "codecommit:GetFile",
+          "codecommit:GetFolder",
+          "codecommit:PutFile"
+        ]
+        Resource = aws_codecommit_repository.gaming_app.arn
       }
     ]
   })
 
   tags = merge(local.tags, {
-    Purpose = "CI/CD pipeline role for CodeCommit access"
+    Repository = "gaming-app"
+    Purpose    = "Repository access policy"
   })
-}
-
-# Attach policies to the pipeline role
-resource "aws_iam_role_policy_attachment" "pipeline_platform_configs" {
-  role       = aws_iam_role.codecommit_pipeline_role.name
-  policy_arn = aws_iam_policy.platform_configs_access.arn
-}
-
-resource "aws_iam_role_policy_attachment" "pipeline_workloads" {
-  role       = aws_iam_role.codecommit_pipeline_role.name
-  policy_arn = aws_iam_policy.workloads_access.arn
 }

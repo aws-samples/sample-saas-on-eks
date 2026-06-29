@@ -1,0 +1,48 @@
+apiVersion: dynamodb.services.k8s.aws/v1alpha1
+kind: Table
+metadata:
+  name: gaming-app-table
+  namespace: gaming
+  labels:
+    app: gaming-app
+spec:
+  tableName: gaming-app-table
+  attributeDefinitions:
+    - attributeName: PK
+      attributeType: S
+    - attributeName: SK
+      attributeType: S
+    - attributeName: GSI1PK
+      attributeType: S
+    - attributeName: GSI1SK
+      attributeType: S
+    - attributeName: GSI2PK
+      attributeType: S
+    - attributeName: GSI2SK
+      attributeType: S
+  keySchema:
+    - attributeName: PK
+      keyType: HASH
+    - attributeName: SK
+      keyType: RANGE
+  globalSecondaryIndexes:
+    - indexName: LeaderboardIndex
+      keySchema:
+        - attributeName: GSI1PK
+          keyType: HASH
+        - attributeName: GSI1SK
+          keyType: RANGE
+      projection:
+        projectionType: ALL
+    - indexName: PlayerGamesIndex
+      keySchema:
+        - attributeName: GSI2PK
+          keyType: HASH
+        - attributeName: GSI2SK
+          keyType: RANGE
+      projection:
+        projectionType: ALL
+  billingMode: PAY_PER_REQUEST
+  tags:
+    - key: App
+      value: gaming-app

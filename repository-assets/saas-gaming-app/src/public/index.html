@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Number Guessing Game - SaaS Gaming Platform</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Tenant Header -->
+        <div class="tenant-header-component">
+            <div class="tenant-info">
+                <span class="tenant-icon">🏢</span>
+                <span id="tenant-name" class="tenant-name">Loading...</span>
+                <span id="tier-badge" class="tier-badge tier-basic">BASIC</span>
+            </div>
+            <div class="player-info">
+                <div id="player-avatar-container" class="player-avatar-container hidden" title="Click to change avatar">
+                    <img id="player-avatar-img" class="player-avatar-img" src="" alt="Player Avatar">
+                </div>
+                <span id="current-player-display" class="current-player-name">Not logged in</span>
+            </div>
+        </div>
+
+        <!-- Header -->
+        <header class="game-header">
+            <h1>🎮 Number Guessing Game</h1>
+            <p class="subtitle">Guess the number between 1 and 100!</p>
+        </header>
+
+        <!-- Upgrade Banner (shown for Basic tier) -->
+        <div id="upgrade-banner" class="upgrade-banner hidden">
+            <span>🌟 You're on the Basic tier. </span>
+            <button class="btn-link" onclick="showUpgradeModal()">Upgrade to Pro</button>
+            <span> for advanced analytics and more!</span>
+        </div>
+
+        <!-- Configuration Warnings -->
+        <div id="config-warnings" class="config-warnings hidden"></div>
+
+        <!-- Onboarding Section with Stepper -->
+        <section id="onboarding-section" class="section">
+            <h2>Welcome to the Number Guessing Game!</h2>
+            <p class="subtitle-text">Complete these steps to start playing</p>
+            
+            <div class="stepper-container">
+                <!-- Step 1: Enter Name -->
+                <div class="stepper-step active" data-step="1">
+                    <div class="stepper-header">
+                        <div class="stepper-number">1</div>
+                        <div class="stepper-title">
+                            <h3>Choose Your Nickname</h3>
+                            <p class="stepper-description">Pick a unique nickname</p>
+                        </div>
+                    </div>
+                    <div class="stepper-content">
+                        <div class="form-group">
+                            <label for="player-name">Your Nickname:</label>
+                            <input type="text" id="player-name" placeholder="Enter your nickname" required>
+                            <p class="help-text">Your Player ID will be generated automatically (e.g., yournickname-a1b2)</p>
+                        </div>
+                        <button id="next-to-avatar-btn" class="btn btn-primary">Next: Choose Avatar</button>
+                    </div>
+                </div>
+                
+                <!-- Step 2: Choose Avatar -->
+                <div class="stepper-step" data-step="2">
+                    <div class="stepper-header">
+                        <div class="stepper-number">2</div>
+                        <div class="stepper-title">
+                            <h3>Choose Your Avatar</h3>
+                            <p class="stepper-description">Select your character</p>
+                        </div>
+                    </div>
+                    <div class="stepper-content">
+                        <div class="avatar-selection-container">
+                            <div class="avatar-cards-row">
+                                <!-- Avatar Card 1: Warrior -->
+                                <div class="avatar-card" data-avatar="avatar1" data-label="Warrior">
+                                    <div class="avatar-card-checkmark">✓</div>
+                                    <div class="avatar-card-image-wrapper">
+                                        <img src="https://api.dicebear.com/9.x/adventurer/svg?seed=warrior" alt="Warrior Avatar" class="avatar-card-image">
+                                    </div>
+                                    <div class="avatar-card-label">Warrior</div>
+                                </div>
+                                
+                                <!-- Avatar Card 2: Shadow -->
+                                <div class="avatar-card" data-avatar="avatar2" data-label="Shadow">
+                                    <div class="avatar-card-checkmark">✓</div>
+                                    <div class="avatar-card-image-wrapper">
+                                        <img src="https://api.dicebear.com/9.x/adventurer/svg?seed=shadow" alt="Shadow Avatar" class="avatar-card-image">
+                                    </div>
+                                    <div class="avatar-card-label">Shadow</div>
+                                </div>
+                                
+                                <!-- Avatar Card 3: Phoenix -->
+                                <div class="avatar-card" data-avatar="avatar3" data-label="Phoenix">
+                                    <div class="avatar-card-checkmark">✓</div>
+                                    <div class="avatar-card-image-wrapper">
+                                        <img src="https://api.dicebear.com/9.x/adventurer/svg?seed=phoenix" alt="Phoenix Avatar" class="avatar-card-image">
+                                    </div>
+                                    <div class="avatar-card-label">Phoenix</div>
+                                </div>
+                                
+                                <!-- Avatar Card 4: Avery -->
+                                <div class="avatar-card" data-avatar="avatar4" data-label="Avery">
+                                    <div class="avatar-card-checkmark">✓</div>
+                                    <div class="avatar-card-image-wrapper">
+                                        <img src="https://api.dicebear.com/7.x/adventurer/svg?seed=Avery" alt="Avery Avatar" class="avatar-card-image">
+                                    </div>
+                                    <div class="avatar-card-label">Avery</div>
+                                </div>
+                                
+                                <!-- Avatar Card 5: Brian -->
+                                <div class="avatar-card" data-avatar="avatar5" data-label="Brian">
+                                    <div class="avatar-card-checkmark">✓</div>
+                                    <div class="avatar-card-image-wrapper">
+                                        <img src="https://api.dicebear.com/9.x/adventurer/svg?seed=Brian" alt="Brian Avatar" class="avatar-card-image">
+                                    </div>
+                                    <div class="avatar-card-label">Brian</div>
+                                </div>
+                            </div>
+                            
+                            <button id="confirm-avatar-btn" class="btn btn-primary btn-confirm-avatar" disabled>
+                                <span class="btn-text">Confirm Avatar</span>
+                                <span class="btn-spinner hidden">⏳</span>
+                                <span class="btn-success hidden">✓</span>
+                            </button>
+                        </div>
+                        
+                        <div id="avatar-status" class="avatar-status hidden"></div>
+                    </div>
+                </div>
+                
+                <!-- Step 3: Start Game -->
+                <div class="stepper-step" data-step="3">
+                    <div class="stepper-header">
+                        <div class="stepper-number">3</div>
+                        <div class="stepper-title">
+                            <h3>Ready to Play!</h3>
+                            <p class="stepper-description">Start your first game</p>
+                        </div>
+                    </div>
+                    <div class="stepper-content">
+                        <div class="ready-summary">
+                            <div class="summary-item">
+                                <span class="summary-label">Nickname:</span>
+                                <span id="summary-player-name" class="summary-value">-</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">Avatar:</span>
+                                <span id="summary-avatar" class="summary-value">-</span>
+                            </div>
+                        </div>
+                        <button id="start-game-btn" class="btn btn-primary btn-large">Start Playing! 🎮</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Game Play Section -->
+        <section id="game-play" class="section hidden">
+            <div class="game-info">
+                <div class="info-card">
+                    <span class="label">Nickname:</span>
+                    <span id="current-player" class="value">-</span>
+                </div>
+                <div class="info-card">
+                    <span class="label">Score:</span>
+                    <span id="current-score" class="value">0</span>
+                </div>
+                <div class="info-card">
+                    <span class="label">Guesses Left:</span>
+                    <span id="guesses-remaining" class="value">10</span>
+                </div>
+            </div>
+
+            <div class="game-board">
+                <div class="guess-input-container">
+                    <input type="number" id="guess-input" min="1" max="100" placeholder="Enter your guess (1-100)">
+                    <button id="submit-guess-btn" class="btn btn-primary">Submit Guess</button>
+                </div>
+                
+                <div id="feedback-message" class="feedback-message"></div>
+                
+                <div id="guess-history" class="guess-history">
+                    <h3>Your Guesses:</h3>
+                    <div id="guess-list" class="guess-list"></div>
+                </div>
+            </div>
+
+            <div class="game-actions">
+                <button id="new-game-btn" class="btn btn-secondary">New Game</button>
+                <button id="switch-player-btn" class="btn btn-secondary">Switch Player</button>
+            </div>
+        </section>
+
+
+
+        <!-- Leaderboard Section -->
+        <section id="leaderboard-section" class="section">
+            <h2 id="leaderboard-title">🏆 Leaderboard</h2>
+            <button id="refresh-leaderboard-btn" class="btn btn-secondary">Refresh</button>
+            <div id="leaderboard-container" class="leaderboard-container">
+                <div class="loading">Loading leaderboard...</div>
+            </div>
+        </section>
+
+        <!-- Analytics Section (Pro Tier Only) -->
+        <section id="analytics-section" class="section hidden">
+            <h2 id="analytics-title">📊 Analytics Dashboard</h2>
+            <p class="pro-badge">Pro Feature</p>
+            
+            <!-- Overview Cards -->
+            <div class="analytics-overview">
+                <div class="stat-card">
+                    <div class="stat-label">Win Rate</div>
+                    <div class="stat-value" id="win-rate">0%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Avg Guesses</div>
+                    <div class="stat-value" id="avg-guesses">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Current Streak</div>
+                    <div class="stat-value" id="current-streak">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Best Streak</div>
+                    <div class="stat-value" id="best-streak">0</div>
+                </div>
+            </div>
+            
+            <!-- Win Rate Trend Chart -->
+            <div class="chart-container">
+                <h3>Win Rate Trend (Last 30 Days)</h3>
+                <canvas id="win-rate-chart"></canvas>
+            </div>
+            
+            <!-- Score Distribution Chart -->
+            <div class="chart-container">
+                <h3>Score Distribution</h3>
+                <canvas id="score-distribution-chart"></canvas>
+            </div>
+            
+            <!-- Game History Table -->
+            <div class="history-container">
+                <h3>Recent Games</h3>
+                <div id="game-history-table"></div>
+                <button id="load-more-history" class="btn btn-secondary hidden">Load More</button>
+            </div>
+            
+            <!-- Export Button -->
+            <div class="export-container">
+                <button id="export-data-btn" class="btn btn-primary">
+                    📥 Export My Data (JSON)
+                </button>
+            </div>
+        </section>
+    </div>
+
+    <!-- Change Avatar Modal -->
+    <div id="change-avatar-modal" class="modal hidden">
+        <div class="modal-content modal-avatar">
+            <span class="modal-close" onclick="closeChangeAvatarModal()">&times;</span>
+            <h2>Change Your Avatar</h2>
+            <p class="modal-subtitle">Select a new avatar</p>
+            
+            <div class="avatar-selection-container">
+                <div class="avatar-cards-row">
+                    <!-- Avatar Card 1: Warrior -->
+                    <div class="avatar-card modal-avatar-card" data-avatar="avatar1" data-label="Warrior">
+                        <div class="avatar-card-checkmark">✓</div>
+                        <div class="avatar-card-image-wrapper">
+                            <img src="https://api.dicebear.com/9.x/adventurer/svg?seed=warrior" alt="Warrior Avatar" class="avatar-card-image">
+                        </div>
+                        <div class="avatar-card-label">Warrior</div>
+                    </div>
+                    
+                    <!-- Avatar Card 2: Shadow -->
+                    <div class="avatar-card modal-avatar-card" data-avatar="avatar2" data-label="Shadow">
+                        <div class="avatar-card-checkmark">✓</div>
+                        <div class="avatar-card-image-wrapper">
+                            <img src="https://api.dicebear.com/9.x/adventurer/svg?seed=shadow" alt="Shadow Avatar" class="avatar-card-image">
+                        </div>
+                        <div class="avatar-card-label">Shadow</div>
+                    </div>
+                    
+                    <!-- Avatar Card 3: Phoenix -->
+                    <div class="avatar-card modal-avatar-card" data-avatar="avatar3" data-label="Phoenix">
+                        <div class="avatar-card-checkmark">✓</div>
+                        <div class="avatar-card-image-wrapper">
+                            <img src="https://api.dicebear.com/9.x/adventurer/svg?seed=phoenix" alt="Phoenix Avatar" class="avatar-card-image">
+                        </div>
+                        <div class="avatar-card-label">Phoenix</div>
+                    </div>
+                    
+                    <!-- Avatar Card 4: Avery -->
+                    <div class="avatar-card modal-avatar-card" data-avatar="avatar4" data-label="Avery">
+                        <div class="avatar-card-checkmark">✓</div>
+                        <div class="avatar-card-image-wrapper">
+                            <img src="https://api.dicebear.com/7.x/adventurer/svg?seed=Avery" alt="Avery Avatar" class="avatar-card-image">
+                        </div>
+                        <div class="avatar-card-label">Avery</div>
+                    </div>
+                    
+                    <!-- Avatar Card 5: Brian -->
+                    <div class="avatar-card modal-avatar-card" data-avatar="avatar5" data-label="Brian">
+                        <div class="avatar-card-checkmark">✓</div>
+                        <div class="avatar-card-image-wrapper">
+                            <img src="https://api.dicebear.com/9.x/adventurer/svg?seed=Brian" alt="Brian Avatar" class="avatar-card-image">
+                        </div>
+                        <div class="avatar-card-label">Brian</div>
+                    </div>
+                </div>
+                
+                <button id="modal-confirm-avatar-btn" class="btn btn-primary btn-confirm-avatar" disabled>
+                    <span class="btn-text">Confirm Avatar</span>
+                    <span class="btn-spinner hidden">⏳</span>
+                    <span class="btn-success hidden">✓</span>
+                </button>
+            </div>
+            
+            <div id="modal-avatar-status" class="avatar-status hidden"></div>
+        </div>
+    </div>
+
+    <!-- Upgrade Modal -->
+    <div id="upgrade-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeUpgradeModal()">&times;</span>
+            <h2>🚀 Upgrade to Pro</h2>
+            <p class="modal-subtitle">Unlock advanced features and insights</p>
+            
+            <div class="features-comparison">
+                <div class="tier-column">
+                    <h3>Basic (Current)</h3>
+                    <ul class="feature-list">
+                        <li>✓ Core game functionality</li>
+                        <li>✓ Personal statistics</li>
+                        <li>✓ Top 3 leaderboard</li>
+                        <li>✓ 1MB avatar uploads</li>
+                        <li>✓ Standard image formats (JPG, PNG)</li>
+                    </ul>
+                </div>
+                
+                <div class="tier-column pro-column">
+                    <h3>Pro</h3>
+                    <ul class="feature-list">
+                        <li>✓ Everything in Basic</li>
+                        <li>✨ Advanced analytics dashboard</li>
+                        <li>✨ Win rate trends & charts</li>
+                        <li>✨ Complete game history</li>
+                        <li>✨ Top 10 leaderboard</li>
+                        <li>✨ 5MB avatar uploads</li>
+                        <li>✨ Animated GIF avatars</li>
+                        <li>✨ Data export (JSON)</li>
+                        <li>✨ 3x higher availability</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-primary btn-large" onclick="handleUpgradeInterest()">Contact Sales</button>
+                <button class="btn btn-secondary" onclick="closeUpgradeModal()">Maybe Later</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/game.js"></script>
+</body>
+</html>

@@ -1,0 +1,195 @@
+{
+  "DataSetIdentifierDeclarations": [
+    {
+      "Identifier": "eks_workload_costs",
+      "DataSetArn": "DATASET_ARN_PLACEHOLDER"
+    }
+  ],
+  "FilterGroups": [
+    {
+      "FilterGroupId": "cluster-filter-group-sheet1",
+      "Filters": [
+        {
+          "CategoryFilter": {
+            "FilterId": "cluster-filter-sheet1",
+            "Column": { "DataSetIdentifier": "eks_workload_costs", "ColumnName": "cluster_name" },
+            "Configuration": { "FilterListConfiguration": { "MatchOperator": "CONTAINS", "SelectAllOptions": "FILTER_ALL_VALUES" } }
+          }
+        }
+      ],
+      "ScopeConfiguration": { "SelectedSheets": { "SheetVisualScopingConfigurations": [{ "SheetId": "sheet1", "Scope": "ALL_VISUALS" }] } },
+      "CrossDataset": "ALL_DATASETS",
+      "Status": "ENABLED"
+    },
+    {
+      "FilterGroupId": "namespace-filter-group-sheet1",
+      "Filters": [
+        {
+          "CategoryFilter": {
+            "FilterId": "namespace-filter-sheet1",
+            "Column": { "DataSetIdentifier": "eks_workload_costs", "ColumnName": "namespace" },
+            "Configuration": { "FilterListConfiguration": { "MatchOperator": "CONTAINS", "SelectAllOptions": "FILTER_ALL_VALUES" } }
+          }
+        }
+      ],
+      "ScopeConfiguration": { "SelectedSheets": { "SheetVisualScopingConfigurations": [{ "SheetId": "sheet1", "Scope": "ALL_VISUALS" }] } },
+      "CrossDataset": "ALL_DATASETS",
+      "Status": "ENABLED"
+    }
+  ],
+  "Sheets": [
+    {
+      "SheetId": "sheet1",
+      "Name": "Cost Overview",
+      "FilterControls": [
+        {
+          "Dropdown": {
+            "FilterControlId": "cluster-dropdown",
+            "Title": "Cluster",
+            "SourceFilterId": "cluster-filter-sheet1",
+            "DisplayOptions": { "TitleOptions": { "Visibility": "VISIBLE" }, "SelectAllOptions": { "Visibility": "VISIBLE" } }
+          }
+        },
+        {
+          "Dropdown": {
+            "FilterControlId": "namespace-dropdown",
+            "Title": "Namespace",
+            "SourceFilterId": "namespace-filter-sheet1",
+            "DisplayOptions": { "TitleOptions": { "Visibility": "VISIBLE" }, "SelectAllOptions": { "Visibility": "VISIBLE" } }
+          }
+        }
+      ],
+      "Visuals": [
+        {
+          "KPIVisual": {
+            "VisualId": "total-cost-kpi",
+            "Title": { "FormatText": { "PlainText": "Total Split Cost" } },
+            "ChartConfiguration": {
+              "FieldWells": {
+                "Values": [
+                  {
+                    "NumericalMeasureField": {
+                      "FieldId": "split_cost_total",
+                      "Column": { "DataSetIdentifier": "eks_workload_costs", "ColumnName": "split_cost" },
+                      "AggregationFunction": { "SimpleNumericalAggregation": "SUM" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "PieChartVisual": {
+            "VisualId": "cost-by-cluster",
+            "Title": { "FormatText": { "PlainText": "Cost by Cluster" } },
+            "ChartConfiguration": {
+              "FieldWells": {
+                "PieChartAggregatedFieldWells": {
+                  "Category": [
+                    {
+                      "CategoricalDimensionField": {
+                        "FieldId": "cluster_name",
+                        "Column": { "DataSetIdentifier": "eks_workload_costs", "ColumnName": "cluster_name" }
+                      }
+                    }
+                  ],
+                  "Values": [
+                    {
+                      "NumericalMeasureField": {
+                        "FieldId": "split_cost",
+                        "Column": { "DataSetIdentifier": "eks_workload_costs", "ColumnName": "split_cost" },
+                        "AggregationFunction": { "SimpleNumericalAggregation": "SUM" }
+                      }
+                    }
+                  ]
+                }
+              },
+              "DonutOptions": { "ArcOptions": { "ArcThickness": "WHOLE" } }
+            }
+          }
+        },
+        {
+          "BarChartVisual": {
+            "VisualId": "cost-by-namespace",
+            "Title": { "FormatText": { "PlainText": "Cost by Namespace" } },
+            "ChartConfiguration": {
+              "FieldWells": {
+                "BarChartAggregatedFieldWells": {
+                  "Category": [
+                    {
+                      "CategoricalDimensionField": {
+                        "FieldId": "namespace",
+                        "Column": { "DataSetIdentifier": "eks_workload_costs", "ColumnName": "namespace" }
+                      }
+                    }
+                  ],
+                  "Values": [
+                    {
+                      "NumericalMeasureField": {
+                        "FieldId": "split_cost",
+                        "Column": { "DataSetIdentifier": "eks_workload_costs", "ColumnName": "split_cost" },
+                        "AggregationFunction": { "SimpleNumericalAggregation": "SUM" }
+                      }
+                    }
+                  ]
+                }
+              },
+              "Orientation": "HORIZONTAL",
+              "BarsArrangement": "STACKED"
+            }
+          }
+        },
+        {
+          "LineChartVisual": {
+            "VisualId": "cost-over-time",
+            "Title": { "FormatText": { "PlainText": "Daily Cost Trend" } },
+            "ChartConfiguration": {
+              "FieldWells": {
+                "LineChartAggregatedFieldWells": {
+                  "Category": [
+                    {
+                      "DateDimensionField": {
+                        "FieldId": "usage_date",
+                        "Column": { "DataSetIdentifier": "eks_workload_costs", "ColumnName": "usage_date" },
+                        "DateGranularity": "DAY"
+                      }
+                    }
+                  ],
+                  "Values": [
+                    {
+                      "NumericalMeasureField": {
+                        "FieldId": "split_cost",
+                        "Column": { "DataSetIdentifier": "eks_workload_costs", "ColumnName": "split_cost" },
+                        "AggregationFunction": { "SimpleNumericalAggregation": "SUM" }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "Layouts": [
+        {
+          "Configuration": {
+            "GridLayout": {
+              "CanvasSizeOptions": {
+                "ScreenCanvasSizeOptions": {
+                  "ResizeOption": "RESPONSIVE"
+                }
+              },
+              "Elements": [
+                { "ElementId": "total-cost-kpi", "ElementType": "VISUAL", "ColumnIndex": 0, "RowIndex": 0, "ColumnSpan": 36, "RowSpan": 6 },
+                { "ElementId": "cost-by-cluster", "ElementType": "VISUAL", "ColumnIndex": 0, "RowIndex": 6, "ColumnSpan": 18, "RowSpan": 12 },
+                { "ElementId": "cost-by-namespace", "ElementType": "VISUAL", "ColumnIndex": 18, "RowIndex": 6, "ColumnSpan": 18, "RowSpan": 12 },
+                { "ElementId": "cost-over-time", "ElementType": "VISUAL", "ColumnIndex": 0, "RowIndex": 18, "ColumnSpan": 36, "RowSpan": 12 }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

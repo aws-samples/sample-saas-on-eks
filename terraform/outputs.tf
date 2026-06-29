@@ -166,10 +166,6 @@ output "codecommit_user_name" {
   value       = aws_iam_user.codecommit_user.name
 }
 
-output "codecommit_pipeline_role_arn" {
-  description = "ARN of the IAM role for CI/CD pipeline access to repositories"
-  value       = aws_iam_role.codecommit_pipeline_role.arn
-}
 ################################################################################
 # EKS Capabilities Outputs
 ################################################################################
@@ -302,4 +298,92 @@ output "verify_kro_control_plane" {
 output "verify_kro_data_plane" {
   description = "Command to verify KRO capability on data plane cluster"
   value       = "aws eks list-capabilities --region ${data.aws_region.current.region} --cluster-name ${module.eks_data_plane.cluster_name} --query 'capabilities[?type==`KRO`]'"
+}
+
+################################################################################
+# Repository Outputs
+################################################################################
+
+output "platform_configs_repository" {
+  description = "Platform configs CodeCommit repository details"
+  value = {
+    name           = aws_codecommit_repository.platform_configs.repository_name
+    arn            = aws_codecommit_repository.platform_configs.arn
+    clone_url_http = aws_codecommit_repository.platform_configs.clone_url_http
+    clone_url_ssh  = aws_codecommit_repository.platform_configs.clone_url_ssh
+    repository_id  = aws_codecommit_repository.platform_configs.repository_id
+  }
+}
+
+output "workloads_repository" {
+  description = "Workloads CodeCommit repository details"
+  value = {
+    name           = aws_codecommit_repository.workloads.repository_name
+    arn            = aws_codecommit_repository.workloads.arn
+    clone_url_http = aws_codecommit_repository.workloads.clone_url_http
+    clone_url_ssh  = aws_codecommit_repository.workloads.clone_url_ssh
+    repository_id  = aws_codecommit_repository.workloads.repository_id
+  }
+}
+
+output "gaming_app_repository" {
+  description = "Gaming_app CodeCommit repository details"
+  value = {
+    name           = aws_codecommit_repository.gaming_app.repository_name
+    arn            = aws_codecommit_repository.gaming_app.arn
+    clone_url_http = aws_codecommit_repository.gaming_app.clone_url_http
+    clone_url_ssh  = aws_codecommit_repository.gaming_app.clone_url_ssh
+    repository_id  = aws_codecommit_repository.gaming_app.repository_id
+  }
+}
+
+
+
+################################################################################
+# Cost Allocation Outputs
+################################################################################
+
+output "cur_data_bucket_name" {
+  description = "S3 bucket containing EKS CUR data"
+  value       = aws_s3_bucket.eks_cur_data.id
+}
+
+output "athena_results_bucket_name" {
+  description = "S3 bucket for Athena query results"
+  value       = aws_s3_bucket.athena_results.id
+}
+
+output "glue_database_name" {
+  description = "Glue database name for Athena queries"
+  value       = aws_glue_catalog_database.eks_cost_db.name
+}
+
+output "glue_crawler_name" {
+  description = "Glue crawler name for indexing CUR data"
+  value       = aws_glue_crawler.eks_cur_crawler.name
+}
+
+output "athena_workgroup_name" {
+  description = "Athena workgroup for cost queries"
+  value       = aws_athena_workgroup.eks_cost_workgroup.name
+}
+
+output "quicksight_data_source_arn" {
+  description = "QuickSight Athena Data Source ARN"
+  value       = local.quicksight_data_source_arn
+}
+
+output "quicksight_data_set_arn" {
+  description = "QuickSight Dataset ARN for eks_workload_costs"
+  value       = aws_quicksight_data_set.eks_workload_costs.arn
+}
+
+output "quicksight_dashboard_url" {
+  description = "QuickSight Dashboard URL"
+  value       = "https://${data.aws_region.current.region}.quicksight.aws.amazon.com/sn/dashboards/eks-cost-dashboard"
+}
+
+output "quicksight_admins_group_id" {
+  description = "Group ID of the QuickSight Admins group in Identity Center"
+  value       = aws_identitystore_group.quicksight_admins.group_id
 }

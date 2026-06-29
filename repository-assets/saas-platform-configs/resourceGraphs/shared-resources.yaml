@@ -1,0 +1,168 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata:
+  name: shared-resources-package
+  namespace: default
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: SharedResourcesPackage
+    group: kro.run
+    spec:
+      # Namespace for shared resources
+      tenantPool: string | required=true
+      # DynamoDB table name
+      tableName: string | default="saas-gaming-shared"
+
+  resources:
+    # kro Info
+    # This is a reference to an existing ConfigMap in the cluster
+    - id: kroConfig
+      externalRef:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: kro-config
+          namespace: default
+    - id: sharedNamespace
+      template:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: ${schema.spec.tenantPool}
+          labels:
+            tenant-pool: ${schema.spec.tenantPool}
+            managed-by: kro
+    # Shared S3 Bucket for Basic Tier Tenants
+    # This bucket uses a multi-tenant design pattern where:
+    # - Folder structure: tenants/<tenant-id>/avatars/, tenants/<tenant-id>/assets/
+    # - IAM policies enforce tenant isolation using S3 prefix conditions
+    - id: storage
+      readyWhen:
+        - ${storage.status.conditions.exists(x, x.type == 'ACK.ResourceSynced' && x.status == "True")}
+      template:
+        apiVersion: s3.services.k8s.aws/v1alpha1
+        kind: Bucket
+        metadata:
+          name: gaming-shared-bucket
+          namespace: ${schema.spec.tenantPool}
+          labels:
+            resource-type: shared
+            tenant-tier: basic
+            managed-by: kro
+        spec:
+          name: ${schema.spec.tenantPool}-${kroConfig.data.account_id}
+          tagging:
+            tagSet:
+              - key: ResourceType
+                value: shared
+              - key: TenantTier
+                value: basic
+              - key: ManagedBy
+                value: kro
+
+    # Shared DynamoDB Table for Basic Tier Tenants
+    # This table uses a multi-tenant design pattern where:
+    # - Partition Key (PK): TENANT#<tenant-id>#<entity-type>
+    # - Sort Key (SK): <entity-id> or <timestamp>
+    # - GSI1 (LeaderboardIndex): For leaderboard queries
+    #   - GSI1PK: TENANT#<tenant-id>#LEADERBOARD
+    #   - GSI1SK: SCORE#<padded-score>#PLAYER#<player-id>
+    # - GSI2 (PlayerGamesIndex): For player game history
+    #   - GSI2PK: TENANT#<tenant-id>#PLAYER#<player-id>
+    #   - GSI2SK: GAME#<timestamp>
+    # - IAM policies enforce tenant isolation using dynamodb:LeadingKeys condition
+    - id: database
+      readyWhen:
+        - ${database.status.conditions.exists(x, x.type == 'ACK.ResourceSynced' && x.status == "True")}
+      template:
+        apiVersion: dynamodb.services.k8s.aws/v1alpha1
+        kind: Table
+        metadata:
+          name: gaming-shared-table
+          namespace: ${schema.spec.tenantPool}
+          labels:
+            resource-type: shared
+            tenant-tier: basic
+            managed-by: kro
+        spec:
+          tableName: ${schema.spec.tenantPool}-${schema.spec.tableName}
+          attributeDefinitions:
+            - attributeName: PK
+              attributeType: S
+            - attributeName: SK
+              attributeType: S
+            - attributeName: GSI1PK
+              attributeType: S
+            - attributeName: GSI1SK
+              attributeType: S
+            - attributeName: GSI2PK
+              attributeType: S
+            - attributeName: GSI2SK
+              attributeType: S
+          keySchema:
+            - attributeName: PK
+              keyType: HASH
+            - attributeName: SK
+              keyType: RANGE
+          globalSecondaryIndexes:
+            - indexName: LeaderboardIndex
+              keySchema:
+                - attributeName: GSI1PK
+                  keyType: HASH
+                - attributeName: GSI1SK
+                  keyType: RANGE
+              projection:
+                projectionType: ALL
+            - indexName: PlayerGamesIndex
+              keySchema:
+                - attributeName: GSI2PK
+                  keyType: HASH
+                - attributeName: GSI2SK
+                  keyType: RANGE
+              projection:
+                projectionType: ALL
+          billingMode: PAY_PER_REQUEST
+          tags:
+            - key: ResourceType
+              value: shared
+            - key: TenantTier
+              value: basic
+            - key: ManagedBy
+              value: kro
+
+    # NodePool for Basic Tier workloads
+    # Uses taints to ensure only basic-tier pods with matching tolerations are scheduled here
+    - id: nodepool
+      template:
+        apiVersion: karpenter.sh/v1
+        kind: NodePool
+        metadata:
+          name: basic-tier
+          labels:
+            tenant-tier: basic
+            managed-by: kro
+        spec:
+          template:
+            metadata:
+              labels:
+                tenant-tier: basic
+            spec:
+              nodeClassRef:
+                group: eks.amazonaws.com
+                kind: NodeClass
+                name: default
+              requirements:
+                - key: "eks.amazonaws.com/instance-category"
+                  operator: In
+                  values: ["c", "m", "r"]
+                - key: "kubernetes.io/arch"
+                  operator: In
+                  values: ["amd64"]
+              taints:
+                - key: "tenant-pool"
+                  value: "basic-tier"
+                  effect: NoSchedule
+          limits:
+            cpu: "10"
+            memory: 20Gi

@@ -1,0 +1,13 @@
+apiVersion: s3.services.k8s.aws/v1alpha1
+kind: Bucket
+metadata:
+  name: gaming-app-bucket
+  namespace: gaming
+  labels:
+    app: gaming-app
+spec:
+  name: gaming-app-bucket-${AWS_ACCOUNT_ID}
+  tagging:
+    tagSet:
+      - key: App
+        value: gaming-app

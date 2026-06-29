@@ -1,0 +1,9 @@
+# Shared Resources Instance
+
+apiVersion: kro.run/v1alpha1
+kind: SharedResourcesPackage
+metadata:
+  name: pool-resources-001
+  namespace: default
+spec:
+  tenantPool: pool-resources-001

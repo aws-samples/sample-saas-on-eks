@@ -1,0 +1,346 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata:
+  name: tenant-pro-package
+  namespace: default
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: TenantProPackage
+    group: kro.run
+    spec:
+      # Tenant identifier
+      tenantId: string | required=true
+      # Tenant display name
+      tenantName: string | required=true
+      # Tenant tier (should be "pro")
+      tier: string | required=true
+      # Application version
+      version: string | default="latest"
+      # Container image
+      image: string | required=true
+      # S3 bucket name
+      bucketName: string | required=true
+      # DynamoDB table name (dedicated table for pro tier)
+      tableName: string | required=true
+      # AWS region
+      awsRegion: string | default="us-east-1"
+      # AWS Account ID
+      awsAccountId: string | required=true
+      # ALB scheme - internet-facing or internal
+      albScheme: string | default="internet-facing" enum="internet-facing,internal"
+
+  resources:
+
+    # IAM Role and Policies for the tenant
+    - id: iamRole
+      readyWhen:
+        - ${iamRole.status.conditions.exists(c, c.type == "Ready" && c.status == "True")}
+      template:
+        apiVersion: kro.run/v1alpha1
+        kind: TenantIAMRole
+        metadata:
+          name: ${schema.spec.tenantId}-iam
+          namespace: ${schema.metadata.namespace}
+        spec:
+          tenantId: ${schema.spec.tenantId}
+          tier: ${schema.spec.tier}
+          awsAccountId: ${schema.spec.awsAccountId}
+          awsRegion: ${schema.spec.awsRegion}
+          bucketName: ${s3Bucket.spec.name}
+          tableName: ${dynamodbTable.spec.tableName}
+
+    # S3 Bucket for tenant assets
+    - id: s3Bucket
+      readyWhen:
+        - ${s3Bucket.status.conditions.exists(x, x.type == 'ACK.ResourceSynced' && x.status == "True")}
+      template:
+        apiVersion: s3.services.k8s.aws/v1alpha1
+        kind: Bucket
+        metadata:
+          name: ${schema.spec.tenantId}-bucket
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+        spec:
+          name: ${schema.spec.bucketName}-${schema.spec.awsAccountId}
+          tagging:
+            tagSet:
+              - key: TenantId
+                value: ${schema.spec.tenantId}
+              - key: TenantTier
+                value: ${schema.spec.tier}
+              - key: ManagedBy
+                value: kro
+
+    # Dedicated DynamoDB table for Pro tier
+    - id: dynamodbTable
+      readyWhen:
+        - ${dynamodbTable.status.conditions.exists(x, x.type == 'ACK.ResourceSynced' && x.status == "True")}
+      template:
+        apiVersion: dynamodb.services.k8s.aws/v1alpha1
+        kind: Table
+        metadata:
+          name: ${schema.spec.tenantId}-table
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+        spec:
+          tableName: gaming-app-tenant-${schema.spec.tenantId}
+          attributeDefinitions:
+            - attributeName: PK
+              attributeType: S
+            - attributeName: SK
+              attributeType: S
+            - attributeName: GSI1PK
+              attributeType: S
+            - attributeName: GSI1SK
+              attributeType: S
+            - attributeName: GSI2PK
+              attributeType: S
+            - attributeName: GSI2SK
+              attributeType: S
+          keySchema:
+            - attributeName: PK
+              keyType: HASH
+            - attributeName: SK
+              keyType: RANGE
+          globalSecondaryIndexes:
+            - indexName: LeaderboardIndex
+              keySchema:
+                - attributeName: GSI1PK
+                  keyType: HASH
+                - attributeName: GSI1SK
+                  keyType: RANGE
+              projection:
+                projectionType: ALL
+            - indexName: PlayerGamesIndex
+              keySchema:
+                - attributeName: GSI2PK
+                  keyType: HASH
+                - attributeName: GSI2SK
+                  keyType: RANGE
+              projection:
+                projectionType: ALL
+          billingMode: PAY_PER_REQUEST
+          tags:
+            - key: TenantId
+              value: ${schema.spec.tenantId}
+            - key: TenantTier
+              value: ${schema.spec.tier}
+            - key: ManagedBy
+              value: kro
+
+    # NodePool for Pro Tier workloads - dedicated per tenant
+    # Each pro tenant gets its own NodePool with taints to guarantee node-level isolation
+    - id: nodepool
+      template:
+        apiVersion: karpenter.sh/v1
+        kind: NodePool
+        metadata:
+          name: pro-${schema.spec.tenantId}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          template:
+            metadata:
+              labels:
+                tenant-id: ${schema.spec.tenantId}
+                tenant-tier: pro
+            spec:
+              nodeClassRef:
+                group: eks.amazonaws.com
+                kind: NodeClass
+                name: default
+              requirements:
+                - key: "eks.amazonaws.com/instance-category"
+                  operator: In
+                  values: ["c", "m", "r"]
+                - key: "kubernetes.io/arch"
+                  operator: In
+                  values: ["amd64"]
+              taints:
+                - key: "tenant-pool"
+                  value: pro-${schema.spec.tenantId}
+                  effect: NoSchedule
+          limits:
+            cpu: "20"
+            memory: 40Gi
+
+
+
+    # ──────────────────────────────────────────────
+    # ──────────────────────────────────────────────
+    # ApplicationNetworkPolicy: Tenant network isolation
+    # - Ingress: allow same-namespace + all non-cross-tenant traffic
+    #   (ALB, system namespaces). Cross-tenant blocked by CNP Admin Deny.
+    # - Egress: allow same-namespace pods on port 8080 + AWS services
+    # ──────────────────────────────────────────────
+    - id: networkPolicyTenantIsolation
+      template:
+        apiVersion: networking.k8s.aws/v1alpha1
+        kind: ApplicationNetworkPolicy
+        metadata:
+          name: tenant-isolation
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          podSelector: {}
+          policyTypes:
+            - Ingress
+            - Egress
+          ingress:
+            # Allow from same namespace
+            - from:
+                - podSelector: {}
+              ports:
+                - protocol: TCP
+                  port: 8080
+            # Allow all other traffic (ALB, system namespaces)
+            # Cross-tenant is blocked by CNP deny-cross-tenant-ingress
+            - from:
+                - ipBlock:
+                    cidr: 0.0.0.0/0
+              ports:
+                - protocol: TCP
+                  port: 8080
+          egress:
+            # Same-namespace pod-to-pod
+            - to:
+                - podSelector: {}
+              ports:
+                - protocol: TCP
+                  port: 8080
+            # S3 regional endpoint — both entries are needed:
+            #   s3.<region>.amazonaws.com       → path-style requests and ListBuckets
+            #   *.s3.<region>.amazonaws.com     → virtual-hosted-style (mybucket.s3.<region>...)
+            # DNS wildcards don't match the bare domain, so *.s3... does NOT cover s3...
+            - to:
+                - domainNames:
+                    - s3.${schema.spec.awsRegion}.amazonaws.com
+                    - "*.s3.${schema.spec.awsRegion}.amazonaws.com"
+              ports:
+                - protocol: TCP
+                  port: 443
+            # DynamoDB regional endpoint
+            - to:
+                - domainNames:
+                    - dynamodb.${schema.spec.awsRegion}.amazonaws.com
+              ports:
+                - protocol: TCP
+                  port: 443
+            # STS endpoint — required for Pod Identity token exchange
+            # Both regional and global endpoints are needed because the
+            # SDK may use either depending on configuration
+            - to:
+                - domainNames:
+                    - sts.${schema.spec.awsRegion}.amazonaws.com
+                    - sts.amazonaws.com
+              ports:
+                - protocol: TCP
+                  port: 443
+
+    # ──────────────────────────────────────────────
+    # Resource Quota: Pro tier
+    # Higher limits for dedicated-node tenants with their
+    # own NodePool and dedicated AWS resources
+    # ──────────────────────────────────────────────
+    - id: resourceQuota
+      template:
+        apiVersion: v1
+        kind: ResourceQuota
+        metadata:
+          name: tenant-quota
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          hard:
+            requests.cpu: "4"
+            requests.memory: "8Gi"
+            limits.cpu: "8"
+            limits.memory: "16Gi"
+            pods: "20"
+            services: "10"
+            configmaps: "20"
+            secrets: "20"
+            persistentvolumeclaims: "10"
+
+    # ──────────────────────────────────────────────
+    # Limit Range: Pro tier
+    # Higher per-container limits for pro tenants with
+    # dedicated NodePools and more headroom
+    # ──────────────────────────────────────────────
+    - id: limitRange
+      template:
+        apiVersion: v1
+        kind: LimitRange
+        metadata:
+          name: tenant-limits
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          limits:
+            - type: Container
+              defaultRequest:
+                cpu: "200m"
+                memory: "256Mi"
+
+    # Main application deployment
+    - id: mainApp
+      readyWhen:
+        - ${mainApp.status.conditions.exists(c, c.type == "Ready" && c.status == "True")}
+      template:
+        apiVersion: kro.run/v1alpha1
+        kind: GamingApplication
+        metadata:
+          name: ${schema.spec.tenantId}-main
+          namespace: ${schema.metadata.namespace}
+        spec:
+          tenantId: ${schema.spec.tenantId}
+          tenantName: ${schema.spec.tenantName}
+          tier: ${schema.spec.tier}
+          version: ${schema.spec.version}
+          image: ${schema.spec.image}
+          replicas: 3  # Pro tier: 3 replicas for HA
+          containerPort: 8080
+          servicePort: 80
+          nodePool: pro-${schema.spec.tenantId}
+          albScheme: ${schema.spec.albScheme}
+          # Pro tier resource limits
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          # Pro tier environment variables
+          # Note: TENANT_ID, TENANT_NAME, TENANT_TIER, and PORT are provided via ConfigMap
+          env:
+            - name: S3_BUCKET
+              value: ${s3Bucket.spec.name}
+            - name: DYNAMODB_TABLE
+              value: ${dynamodbTable.spec.tableName}
+            - name: AWS_REGION
+              value: ${schema.spec.awsRegion}
+            - name: NODE_ENV
+              value: "production"
+            - name: AWS_STS_REGIONAL_ENDPOINTS
+              value: regional
+            - name: AWS_CONTAINER_CREDENTIALS_FULL_URI
+              value: http://169.254.170.23/v1/credentials
+            - name: AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE
+              value: /var/run/secrets/pods.eks.amazonaws.com/serviceaccount/eks-pod-identity-token

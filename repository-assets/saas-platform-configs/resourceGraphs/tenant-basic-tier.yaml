@@ -1,0 +1,273 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata:
+  name: tenant-basic-package
+  namespace: default
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: TenantBasicPackage
+    group: kro.run
+    spec:
+      # Tenant identifier
+      tenantId: string | required=true
+      # Tenant display name
+      tenantName: string | required=true
+      # Tenant tier (should be "basic")
+      tier: string | required=true
+      # Application version
+      version: string | default="latest"
+      # Container image
+      image: string | required=true
+      # AWS region
+      awsRegion: string | default="us-east-1"
+      # Tenant Pool - Namespace for AWS resources
+      tenantPool: string | default="pool-resources-001"
+      # AWS Account ID
+      awsAccountId: string | required=true
+      # ALB scheme - internet-facing or internal
+      albScheme: string | default="internet-facing" enum="internet-facing,internal"
+
+  resources:
+    # Reference to shared S3 bucket
+    - id: sharedBucket
+      externalRef:
+        apiVersion: s3.services.k8s.aws/v1alpha1
+        kind: Bucket
+        metadata:
+          name: gaming-shared-bucket
+          namespace: ${schema.spec.tenantPool}
+
+    # Reference to shared DynamoDB table
+    - id: sharedTable
+      externalRef:
+        apiVersion: dynamodb.services.k8s.aws/v1alpha1
+        kind: Table
+        metadata:
+          name: gaming-shared-table
+          namespace: ${schema.spec.tenantPool}
+
+    # IAM Role and Policies for the tenant
+    - id: iamRole
+      readyWhen:
+        - ${iamRole.status.conditions.exists(c, c.type == "Ready" && c.status == "True")}
+      template:
+        apiVersion: kro.run/v1alpha1
+        kind: TenantIAMRole
+        metadata:
+          name: ${schema.spec.tenantId}-iam
+          namespace: ${schema.metadata.namespace}
+        spec:
+          tenantId: ${schema.spec.tenantId}
+          tier: ${schema.spec.tier}
+          awsAccountId: ${schema.spec.awsAccountId}
+          awsRegion: ${schema.spec.awsRegion}
+          bucketName: ${sharedBucket.spec.name}
+          s3Prefix: avatars/${schema.spec.tenantId}/
+          tableName: ${sharedTable.spec.tableName}
+
+
+    # ──────────────────────────────────────────────
+    # ApplicationNetworkPolicy: Tenant network isolation
+    # - Ingress: allow same-namespace + all non-cross-tenant traffic
+    #   (ALB, system namespaces). Cross-tenant blocked by CNP Admin Deny.
+    # - Egress: allow same-namespace pods on port 8080 + AWS services
+    # ──────────────────────────────────────────────
+    - id: networkPolicyTenantIsolation
+      template:
+        apiVersion: networking.k8s.aws/v1alpha1
+        kind: ApplicationNetworkPolicy
+        metadata:
+          name: tenant-isolation
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          podSelector: {}
+          policyTypes:
+            - Ingress
+            - Egress
+          ingress:
+            # Allow from same namespace
+            - from:
+                - podSelector: {}
+              ports:
+                - protocol: TCP
+                  port: 8080
+            # Allow all other traffic (ALB, system namespaces)
+            # Cross-tenant is blocked by CNP deny-cross-tenant-ingress
+            - from:
+                - ipBlock:
+                    cidr: 0.0.0.0/0
+              ports:
+                - protocol: TCP
+                  port: 8080
+          egress:
+            # Same-namespace pod-to-pod
+            - to:
+                - podSelector: {}
+              ports:
+                - protocol: TCP
+                  port: 8080
+            # S3 regional endpoint — both entries are needed:
+            #   s3.<region>.amazonaws.com       → path-style requests and ListBuckets
+            #   *.s3.<region>.amazonaws.com     → virtual-hosted-style (mybucket.s3.<region>...)
+            # DNS wildcards don't match the bare domain, so *.s3... does NOT cover s3...
+            - to:
+                - domainNames:
+                    - s3.${schema.spec.awsRegion}.amazonaws.com
+                    - "*.s3.${schema.spec.awsRegion}.amazonaws.com"
+              ports:
+                - protocol: TCP
+                  port: 443
+            # DynamoDB regional endpoint
+            - to:
+                - domainNames:
+                    - dynamodb.${schema.spec.awsRegion}.amazonaws.com
+              ports:
+                - protocol: TCP
+                  port: 443
+            # STS endpoint — required for Pod Identity token exchange
+            # Both regional and global endpoints are needed because the
+            # SDK may use either depending on configuration
+            - to:
+                - domainNames:
+                    - sts.${schema.spec.awsRegion}.amazonaws.com
+                    - sts.amazonaws.com
+              ports:
+                - protocol: TCP
+                  port: 443
+
+    # ──────────────────────────────────────────────
+    # Resource Quota: Basic tier
+    # Constrains total resource consumption for pool tenants
+    # sharing the basic-tier NodePool
+    # ──────────────────────────────────────────────
+    - id: resourceQuota
+      template:
+        apiVersion: v1
+        kind: ResourceQuota
+        metadata:
+          name: tenant-quota
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          hard:
+            requests.cpu: "500m"
+            requests.memory: "512Mi"
+            limits.cpu: "1"
+            limits.memory: "1Gi"
+            pods: "5"
+            services: "3"
+            configmaps: "10"
+            secrets: "10"
+            persistentvolumeclaims: "2"
+
+    # ──────────────────────────────────────────────
+    # Limit Range: Basic tier
+    # Sets default resource requests/limits for containers
+    # that don't specify them, and caps maximum per-container usage
+    # ──────────────────────────────────────────────
+    - id: limitRange
+      template:
+        apiVersion: v1
+        kind: LimitRange
+        metadata:
+          name: tenant-limits
+          namespace: ${schema.metadata.namespace}
+          labels:
+            tenant-id: ${schema.spec.tenantId}
+            tenant-tier: ${schema.spec.tier}
+            managed-by: kro
+        spec:
+          limits:
+            - type: Container
+              default:
+                cpu: "200m"
+                memory: "256Mi"
+              defaultRequest:
+                cpu: "100m"
+                memory: "128Mi"
+              max:
+                cpu: "500m"
+                memory: "512Mi"
+              min:
+                cpu: "10m"
+                memory: "12Mi"
+            - type: Pod
+              max:
+                cpu: "500m"
+                memory: "512Mi"
+
+
+    # Main application deployment
+    - id: mainApp
+      readyWhen:
+        - ${mainApp.status.conditions.exists(c, c.type == "Ready" && c.status == "True")}
+      template:
+        apiVersion: kro.run/v1alpha1
+        kind: GamingApplication
+        metadata:
+          name: ${schema.spec.tenantId}-main
+          namespace: ${schema.metadata.namespace}
+        spec:
+          tenantId: ${schema.spec.tenantId}
+          tenantName: ${schema.spec.tenantName}
+          tier: ${schema.spec.tier}
+          version: ${schema.spec.version}
+          image: ${schema.spec.image}
+          replicas: 1
+          containerPort: 8080
+          servicePort: 80
+          nodePool: basic-tier
+          albScheme: ${schema.spec.albScheme}
+          # Basic tier resource limits
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          # Basic tier environment variables with multi-tenant configuration
+          # Note: TENANT_ID, TENANT_NAME, TENANT_TIER, and PORT are provided via ConfigMap
+          env:
+            - name: S3_BUCKET
+              value: ${sharedBucket.spec.name}
+            - name: S3_PREFIX
+              value: tenants/${schema.spec.tenantId}/
+            - name: DYNAMODB_TABLE
+              value: ${sharedTable.spec.tableName}
+            - name: DYNAMODB_PARTITION_KEY_PREFIX
+              value: TENANT#${schema.spec.tenantId}#
+            - name: AWS_REGION
+              value: ${schema.spec.awsRegion}
+            - name: NODE_ENV
+              value: "production"
+            - name: AWS_STS_REGIONAL_ENDPOINTS
+              value: regional
+            - name: AWS_CONTAINER_CREDENTIALS_FULL_URI
+              value: http://169.254.170.23/v1/credentials
+            - name: AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE
+              value: /var/run/secrets/pods.eks.amazonaws.com/serviceaccount/eks-pod-identity-token
+
+    # Note: S3 bucket and DynamoDB table are SHARED for basic tier
+    # These resources are automatically discovered via externalRef:
+    # - S3 bucket: saas-gaming-shared (created via shared-resources/s3-shared-bucket.yaml)
+    # - DynamoDB table: saas-gaming-shared (created via shared-resources/dynamodb-shared-table.yaml)
+    # Tenant isolation is enforced through:
+    # - S3 prefix: tenants/${tenantId}/
+    # - DynamoDB partition key prefix: TENANT#${tenantId}#
+    # Basic tier tenants only create IAM policies with proper isolation conditions
+    # These resources are automatically discovered via externalRef:
+    # - S3 bucket: saas-gaming-shared (created via shared-resources/s3-shared-bucket.yaml)
+    # - DynamoDB table: saas-gaming-shared (created via shared-resources/dynamodb-shared-table.yaml)
+    # Tenant isolation is enforced through:
+    # - S3 prefix: tenants/${tenantId}/
+    # - DynamoDB partition key prefix: TENANT#${tenantId}#
+    # Basic tier tenants only create IAM policies with proper isolation conditions

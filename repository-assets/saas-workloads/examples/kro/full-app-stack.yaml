@@ -1,0 +1,403 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata:
+  name: full-app-stack
+  namespace: default
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: FullAppStack
+    group: kro.run
+    spec:
+      # Optional namespace; if empty, the instance name is used as the namespace
+      namespace: string
+      # Application version to deploy
+      version: string | default="latest"
+      # Number of replicas
+      replicas: integer | default=1
+      # Container port
+      containerPort: integer | default=8080
+      # Service port
+      servicePort: integer | default=80
+      # S3 bucket name
+      bucketName: string | required=true
+      # DynamoDB table name
+      tableName: string | required=true
+      # ALB scheme - internet-facing or internal
+      albScheme: string | default="internet-facing" enum="internet-facing,internal"
+
+  resources:
+    # kro Info
+    # This is a reference to an existing ConfigMap in the cluster
+    - id: kroConfig
+      externalRef:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: kro-config
+          namespace: default
+    - id: appnamespace
+      template:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: '${schema.spec.?namespace.orValue("") != "" ? schema.spec.?namespace.orValue("") : schema.metadata.name}'
+
+    # ConfigMap for application configuration
+    - id: configmap
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: ${schema.metadata.name}-config
+          namespace: ${appnamespace.metadata.name}
+          labels:
+            app: ${schema.metadata.name}
+            managed-by: kro
+        data:
+          PORT: ${string(schema.spec.containerPort)}
+          S3_BUCKET: ${s3Bucket.spec.name}
+          DYNAMODB_TABLE: ${database.spec.tableName}
+          AWS_REGION: ${kroConfig.data.region}
+          NODE_ENV: "production"
+          AWS_STS_REGIONAL_ENDPOINTS: regional
+          AWS_CONTAINER_CREDENTIALS_FULL_URI: http://169.254.170.23/v1/credentials
+          AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE: /var/run/secrets/pods.eks.amazonaws.com/serviceaccount/eks-pod-identity-token
+
+    # Service for the gaming application
+    - id: service
+      template:
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: ${schema.metadata.name}
+          namespace: ${appnamespace.metadata.name}
+          labels:
+            app: ${schema.metadata.name}
+            managed-by: kro
+        spec:
+          type: ClusterIP
+          selector:
+            app: ${schema.metadata.name}
+          ports:
+            - port: ${schema.spec.servicePort}
+              targetPort: ${schema.spec.containerPort}
+              protocol: TCP
+              name: http
+
+    # Ingress for external access
+    - id: ingress
+      template:
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        metadata:
+          name: ${schema.metadata.name}
+          namespace: ${appnamespace.metadata.name}
+          labels:
+            app: ${schema.metadata.name}
+            managed-by: kro
+          annotations:
+            alb.ingress.kubernetes.io/scheme: ${schema.spec.albScheme}
+            alb.ingress.kubernetes.io/target-type: ip
+        spec:
+          ingressClassName: alb
+          rules:
+            - http:
+                paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                      service:
+                        name: ${schema.metadata.name}
+                        port:
+                          number: ${schema.spec.servicePort}
+
+    # S3 Bucket for application assets
+    - id: s3Bucket
+      readyWhen:
+        - ${s3Bucket.status.conditions.exists(x, x.type == 'ACK.ResourceSynced' && x.status == "True")}
+      template:
+        apiVersion: s3.services.k8s.aws/v1alpha1
+        kind: Bucket
+        metadata:
+          name: ${schema.metadata.name}-bucket
+          namespace: ${appnamespace.metadata.name}
+          labels:
+            app: ${schema.metadata.name}
+        spec:
+          name: ${schema.spec.bucketName}-${kroConfig.data.account_id}
+          tagging:
+            tagSet:
+              - key: ManagedBy
+                value: kro
+
+    - id: database
+      readyWhen:
+        - ${database.status.conditions.exists(x, x.type == 'ACK.ResourceSynced' && x.status == "True")}
+      template:
+        apiVersion: dynamodb.services.k8s.aws/v1alpha1
+        kind: Table
+        metadata:
+          name: gaming-table
+          namespace: ${appnamespace.metadata.name}
+          labels:
+            app: ${schema.metadata.name}
+            managed-by: kro
+        spec:
+          tableName: ${schema.spec.tableName}
+          attributeDefinitions:
+            - attributeName: PK
+              attributeType: S
+            - attributeName: SK
+              attributeType: S
+            - attributeName: GSI1PK
+              attributeType: S
+            - attributeName: GSI1SK
+              attributeType: S
+            - attributeName: GSI2PK
+              attributeType: S
+            - attributeName: GSI2SK
+              attributeType: S
+          keySchema:
+            - attributeName: PK
+              keyType: HASH
+            - attributeName: SK
+              keyType: RANGE
+          globalSecondaryIndexes:
+            - indexName: LeaderboardIndex
+              keySchema:
+                - attributeName: GSI1PK
+                  keyType: HASH
+                - attributeName: GSI1SK
+                  keyType: RANGE
+              projection:
+                projectionType: ALL
+            - indexName: PlayerGamesIndex
+              keySchema:
+                - attributeName: GSI2PK
+                  keyType: HASH
+                - attributeName: GSI2SK
+                  keyType: RANGE
+              projection:
+                projectionType: ALL
+          billingMode: PAY_PER_REQUEST
+          tags:
+            - key: ManagedBy
+              value: kro
+
+    # IAM Role for the application (Pod Identity)
+    - id: iamRole
+      template:
+        apiVersion: iam.services.k8s.aws/v1alpha1
+        kind: Role
+        metadata:
+          name: ${schema.metadata.name}-app-role
+          namespace: ${appnamespace.metadata.name}
+          labels:
+            app: ${schema.metadata.name}
+            managed-by: kro
+        spec:
+          name: ${schema.metadata.name}-app-role
+          description: "IAM role for the ${schema.metadata.name} application with EKS Pod Identity"
+          assumeRolePolicyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": "pods.eks.amazonaws.com"
+                  },
+                  "Action": [
+                    "sts:AssumeRole",
+                    "sts:TagSession"
+                  ]
+                }
+              ]
+            }
+          policies:
+            - ${s3Policy.status.ackResourceMetadata.arn}
+            - ${dynamodbPolicy.status.ackResourceMetadata.arn}
+          tags:
+            - key: ManagedBy
+              value: kro
+
+    # IAM Policy for S3 access
+    - id: s3Policy
+      template:
+        apiVersion: iam.services.k8s.aws/v1alpha1
+        kind: Policy
+        metadata:
+          name: ${schema.metadata.name}-s3-policy
+          namespace: ${appnamespace.metadata.name}
+          labels:
+            app: ${schema.metadata.name}
+            managed-by: kro
+        spec:
+          name: ${schema.metadata.name}-s3-policy
+          description: "S3 access policy for the ${schema.metadata.name} application"
+          policyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:DeleteObject",
+                    "s3:ListBucket"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::${s3Bucket.spec.name}",
+                    "arn:aws:s3:::${s3Bucket.spec.name}/*"
+                  ]
+                }
+              ]
+            }
+          tags:
+            - key: ManagedBy
+              value: kro
+
+    # IAM Policy for DynamoDB access
+    - id: dynamodbPolicy
+      template:
+        apiVersion: iam.services.k8s.aws/v1alpha1
+        kind: Policy
+        metadata:
+          name: ${schema.metadata.name}-dynamodb-policy
+          namespace: ${appnamespace.metadata.name}
+          labels:
+            app: ${schema.metadata.name}
+            managed-by: kro
+        spec:
+          name: ${schema.metadata.name}-dynamodb-policy
+          description: "DynamoDB access policy for the ${schema.metadata.name} application"
+          policyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:GetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan",
+                    "dynamodb:DescribeTable"
+                  ],
+                  "Resource": [
+                    "arn:aws:dynamodb:${kroConfig.data.region}:${kroConfig.data.account_id}:table/${schema.spec.tableName}",
+                    "arn:aws:dynamodb:${kroConfig.data.region}:${kroConfig.data.account_id}:table/${schema.spec.tableName}/index/*"
+                  ]
+                }
+              ]
+            }
+          tags:
+            - key: ManagedBy
+              value: kro
+
+    # ServiceAccount for the application (Pod Identity)
+    - id: serviceaccount
+      template:
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: ${schema.metadata.name}-sa
+          namespace: ${appnamespace.metadata.name}
+          labels:
+            app: ${schema.metadata.name}
+            managed-by: kro
+
+    # EKS Pod Identity Association
+    - id: podIdentityAssociation
+      readyWhen:
+        - ${podIdentityAssociation.status.conditions.exists(x, x.type == 'ACK.ResourceSynced' && x.status == "True")}
+      template:
+        apiVersion: eks.services.k8s.aws/v1alpha1
+        kind: PodIdentityAssociation
+        metadata:
+          name: ${schema.metadata.name}-pod-identity
+          namespace: ${appnamespace.metadata.name}
+          labels:
+            app: ${schema.metadata.name}
+            managed-by: kro
+        spec:
+          clusterName: saas-data-plane
+          namespace: ${appnamespace.metadata.name}
+          serviceAccount: ${serviceaccount.metadata.name}
+          roleARN: ${iamRole.status.ackResourceMetadata.arn}
+
+    # Deployment for the gaming application
+    - id: deployment
+      readyWhen:
+        - ${deployment.status.availableReplicas > 0}
+        - ${deployment.status.conditions.exists(c, c.type == "Available" && c.status == "True")}
+      template:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: ${schema.metadata.name}
+          namespace: ${appnamespace.metadata.name}
+          labels:
+            app: ${schema.metadata.name}
+            managed-by: kro
+        spec:
+          replicas: ${schema.spec.replicas}
+          selector:
+            matchLabels:
+              app: ${schema.metadata.name}
+          template:
+            metadata:
+              labels:
+                app: ${schema.metadata.name}
+            spec:
+              serviceAccountName: ${podIdentityAssociation.spec.serviceAccount}
+              containers:
+                - name: gaming-app
+                  image: ${kroConfig.data.ecr_repo}:${schema.spec.version}
+                  ports:
+                    - containerPort: ${schema.spec.containerPort}
+                      name: http
+                      protocol: TCP
+                  envFrom:
+                    - configMapRef:
+                        name: ${schema.metadata.name}-config
+                  resources:
+                    requests:
+                      cpu: "100m"
+                      memory: "128Mi"
+                    limits:
+                      cpu: "500m"
+                      memory: "512Mi"
+                  livenessProbe:
+                    httpGet:
+                      path: /health
+                      port: http
+                    initialDelaySeconds: 30
+                    periodSeconds: 10
+                    timeoutSeconds: 5
+                    failureThreshold: 3
+                  readinessProbe:
+                    httpGet:
+                      path: /health
+                      port: http
+                    initialDelaySeconds: 10
+                    periodSeconds: 5
+                    timeoutSeconds: 3
+                    failureThreshold: 3
+                  volumeMounts:
+                    - mountPath: /var/run/secrets/pods.eks.amazonaws.com/serviceaccount
+                      name: eks-pod-identity-token
+                      readOnly: true
+              volumes:
+                - name: eks-pod-identity-token
+                  projected:
+                    defaultMode: 420
+                    sources:
+                      - serviceAccountToken:
+                          audience: pods.eks.amazonaws.com
+                          expirationSeconds: 80742
+                          path: eks-pod-identity-token
