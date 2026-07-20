@@ -17,44 +17,7 @@ Tenant onboarding is as simple as committing a YAML file. A KRO `ResourceGraphDe
 
 ## Architecture
 
-```
-                    ┌───────────────────────────┐
-                    │  AWS IAM Identity Center   │
-                    │   (Argo CD SSO • SAME      │
-                    │    region as deployment)   │
-                    └─────────────┬─────────────┘
-                                  │ SSO login
-                                  ▼
-                    ┌───────────────────────────┐
-                    │   saas-control-plane       │
-                    │                            │
-                    │   ┌───────────┐            │
-                    │   │  Argo CD  │  GitOps hub │
-                    │   └─────┬─────┘            │
-                    │   ┌─────┴─────┐  ┌───────┐ │
-   CodeCommit ─────►│   │    ACK    │  │  KRO  │ │
-   • saas-platform- │   └───────────┘  └───────┘ │
-     configs        └─────────────┬─────────────┘
-   • saas-workloads               │ manages registered
-   • saas-gaming-app              │ remote cluster
-                                  ▼
-                    ┌───────────────────────────┐
-                    │    saas-data-plane         │
-                    │  (tenant workloads)        │
-                    │   ┌───────────┐  ┌───────┐ │
-                    │   │    ACK    │  │  KRO  │ │
-                    │   └───────────┘  └───────┘ │
-                    └─────────────┬─────────────┘
-                                  │
-                    ┌─────────────┴─────────────┐
-                    │         Shared VPC         │
-                    │   3 AZs • NAT Gateway      │
-                    └───────────────────────────┘
-
-   Supporting AWS services: ECR + CodeBuild (gaming-app image pipeline),
-   shared/dedicated S3 + DynamoDB (tenant data), and a cost-allocation
-   pipeline (CUR → Glue → Athena → QuickSight) with a per-tenant usage Lambda.
-```
+![SaaS Multi-Tenant Platform architecture](SaaS_Multi_Tenant_Platform.png)
 
 ## Repository Structure
 
